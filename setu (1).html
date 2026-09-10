@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setu — Automated Nifty 50 entries and exits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0B0F14;
+    --panel: #141B24;
+    --panel-2: #101620;
+    --border: #232C38;
+    --text: #EDEFF2;
+    --muted: #8C97A8;
+    --buy: #22B27D;
+    --sell: #E15554;
+    --gold: #D8A44C;
+    --radius: 4px;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter', system-ui, sans-serif;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{
+    font-family:'Fraunces', serif;
+    font-weight:500;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  p{color:var(--muted); margin:0;}
+  a{color:inherit;}
+  .wrap{max-width:1120px; margin:0 auto; padding:0 32px;}
+  @media (max-width:640px){ .wrap{padding:0 20px;} }
+
+  /* ---------- NAV ---------- */
+  nav{
+    position:sticky; top:0; z-index:50;
+    background:rgba(11,15,20,0.88);
+    backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--border);
+  }
+  nav .wrap{
+    display:flex; align-items:center; justify-content:space-between;
+    height:64px;
+  }
+  .logo{
+    display:flex; align-items:center; gap:10px;
+    font-family:'Fraunces', serif; font-size:19px; font-weight:600;
+  }
+  .logo-mark{
+    width:22px; height:22px; flex-shrink:0;
+  }
+  nav .links{display:flex; gap:28px; font-size:14px;}
+  nav .links a{text-decoration:none; color:var(--muted); transition:color .15s;}
+  nav .links a:hover{color:var(--text);}
+  @media (max-width:720px){ nav .links{display:none;} }
+  .btn{
+    display:inline-block;
+    padding:10px 18px;
+    border-radius:var(--radius);
+    font-size:14px; font-weight:500;
+    text-decoration:none;
+    cursor:pointer;
+    border:1px solid transparent;
+  }
+  .btn-primary{background:var(--gold); color:#1A1305;}
+  .btn-primary:hover{background:#e3b562;}
+  .btn-ghost{border-color:var(--border); color:var(--text);}
+  .btn-ghost:hover{border-color:#3a4657;}
+
+  /* ---------- HERO ---------- */
+  header.hero{padding:76px 0 64px; border-bottom:1px solid var(--border);}
+  .hero-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:56px; align-items:center;
+  }
+  @media (max-width:880px){ .hero-grid{grid-template-columns:1fr;} }
+  .kicker{
+    font-size:14px; color:var(--gold); margin-bottom:18px;
+  }
+  h1.headline{
+    font-size:clamp(34px, 4.4vw, 52px);
+    line-height:1.08;
+    margin-bottom:20px;
+  }
+  h1.headline em{font-style:italic; color:var(--gold);}
+  .hero-sub{font-size:17px; max-width:46ch; margin-bottom:32px;}
+  .hero-cta{display:flex; gap:14px; margin-bottom:28px; flex-wrap:wrap;}
+  .hero-note{font-size:13px; color:#5f6a7a;}
+
+  .chart-panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:20px 20px 16px;
+  }
+  .chart-panel-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom:6px;
+  }
+  .chart-panel-head .ticker{font-size:14px; font-weight:600;}
+  .chart-panel-head .price{font-size:14px; color:var(--buy); font-variant-numeric:tabular-nums;}
+  .chart-panel-head .price.down{color:var(--sell);}
+  .chart-legend{display:flex; gap:16px; font-size:12px; color:var(--muted); margin-top:8px;}
+  .chart-legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatch{width:14px; height:2px; display:inline-block;}
+
+  /* ---------- SECTION SHARED ---------- */
+  section{padding:80px 0;}
+  .section-head{max-width:56ch; margin-bottom:48px;}
+  .section-head h2{font-size:clamp(26px,3vw,34px); margin-bottom:14px;}
+  .section-head p{font-size:16px;}
+
+  /* ---------- PROCESS ---------- */
+  .process-list{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:1px;
+    background:var(--border);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+  @media (max-width:880px){ .process-list{grid-template-columns:1fr 1fr;} }
+  @media (max-width:520px){ .process-list{grid-template-columns:1fr;} }
+  .process-step{background:var(--panel); padding:26px 22px;}
+  .process-step .num{
+    font-family:'Fraunces', serif; font-size:26px; color:var(--gold); margin-bottom:14px; display:block;
+  }
+  .process-step h3{font-size:16px; margin-bottom:8px; font-weight:600; font-family:'Inter';}
+  .process-step p{font-size:14px;}
+
+  /* ---------- STRATEGY DEMO ---------- */
+  .demo-shell{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    display:grid; grid-template-columns:280px 1fr;
+  }
+  @media (max-width:760px){ .demo-shell{grid-template-columns:1fr;} }
+  .demo-controls{
+    padding:28px; border-right:1px solid var(--border);
+  }
+  @media (max-width:760px){ .demo-controls{border-right:none; border-bottom:1px solid var(--border);} }
+  .control{margin-bottom:26px;}
+  .control label{
+    display:flex; justify-content:space-between;
+    font-size:13px; color:var(--muted); margin-bottom:10px;
+  }
+  .control label b{color:var(--text); font-weight:600; font-variant-numeric:tabular-nums;}
+  input[type=range]{
+    width:100%; accent-color:var(--gold); height:4px;
+  }
+  .signal-readout{
+    margin-top:30px; padding:16px; border:1px solid var(--border); border-radius:var(--radius);
+    background:var(--panel-2);
+  }
+  .signal-readout .label{font-size:12px; color:var(--muted); margin-bottom:6px;}
+  .signal-readout .value{font-family:'Fraunces', serif; font-size:22px; font-weight:600;}
+  .signal-readout .value.buy{color:var(--buy);}
+  .signal-readout .value.sell{color:var(--sell);}
+  .signal-readout .value.hold{color:var(--muted);}
+  .signal-readout .sub{font-size:12px; color:#5f6a7a; margin-top:4px;}
+  .demo-chart-wrap{padding:24px;}
+  canvas{width:100%; display:block;}
+
+  /* ---------- BROKERS ---------- */
+  .broker-grid{
+    display:grid; grid-template-columns:repeat(2,1fr); gap:1px;
+    background:var(--border); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
+  }
+  @media (max-width:640px){ .broker-grid{grid-template-columns:1fr;} }
+  .broker-card{background:var(--panel); padding:24px;}
+  .broker-card .top{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;}
+  .broker-card h3{font-size:16px; font-weight:600; font-family:'Inter';}
+  .tag{font-size:11px; padding:3px 8px; border-radius:20px; border:1px solid var(--border); color:var(--muted);}
+  .tag.official{color:var(--buy); border-color:#1c5b45;}
+  .tag.caution{color:var(--gold); border-color:#5c4a24;}
+  .broker-card p{font-size:14px;}
+
+  /* ---------- RISK ---------- */
+  .risk-box{
+    border:1px solid #5c2a2a; background:#1a1112; border-radius:var(--radius);
+    padding:28px 30px;
+  }
+  .risk-box h3{font-family:'Inter'; font-size:15px; font-weight:600; color:var(--sell); margin-bottom:12px;}
+  .risk-box ul{margin:0; padding-left:18px; color:var(--muted); font-size:14.5px;}
+  .risk-box li{margin-bottom:10px;}
+  .risk-box li:last-child{margin-bottom:0;}
+
+  /* ---------- CTA / FOOTER ---------- */
+  .cta-band{
+    border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+    padding:64px 0; text-align:left;
+  }
+  .cta-band .wrap{display:flex; justify-content:space-between; align-items:center; gap:24px; flex-wrap:wrap;}
+  .cta-band h2{font-size:clamp(24px,3vw,32px); max-width:26ch;}
+  .waitlist{display:flex; gap:10px; flex-wrap:wrap;}
+  .waitlist input{
+    background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius);
+    padding:11px 14px; color:var(--text); font-size:14px; min-width:220px;
+  }
+  .waitlist input:focus{outline:1px solid var(--gold);}
+
+  footer{padding:40px 0 56px;}
+  footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:20px;}
+  footer p{font-size:13px; max-width:60ch;}
+  footer .fcols{display:flex; gap:48px; flex-wrap:wrap;}
+  footer .fcol h4{font-size:12px; color:var(--muted); font-weight:500; margin-bottom:10px; font-family:'Inter';}
+  footer .fcol a{display:block; font-size:13.5px; color:var(--text); text-decoration:none; margin-bottom:8px;}
+  footer .fcol a:hover{color:var(--gold);}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="logo">
+      <svg class="logo-mark" viewBox="0 0 24 24" fill="none">
+        <path d="M3 17 L9 10 L13 14 L21 5" stroke="#D8A44C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M21 5 L21 10" stroke="#D8A44C" stroke-width="2" stroke-linecap="round"/>
+        <path d="M21 5 L16 5" stroke="#D8A44C" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      Setu
+    </div>
+    <div class="links">
+      <a href="#process">How it works</a>
+      <a href="#demo">Strategy demo</a>
+      <a href="#brokers">Brokers</a>
+      <a href="#risk">Risk notes</a>
+    </div>
+    <a href="#join" class="btn btn-ghost">Join the waitlist</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">A bridge between your broker and your strategy</div>
+      <h1 class="headline">Set the rule once.<br>Let the <em>crossover</em> decide.</h1>
+      <p class="hero-sub">Setu watches Nifty 50 against the moving-average rule you define, then places and squares off your positions automatically — no checking charts before the bell, no missed exits after it.</p>
+      <div class="hero-cta">
+        <a href="#join" class="btn btn-primary">Join the waitlist</a>
+        <a href="#demo" class="btn btn-ghost">Try the strategy demo</a>
+      </div>
+      <p class="hero-note">Setu is a strategy and execution layer you connect to your own broker account. It does not hold your funds or securities.</p>
+    </div>
+    <div class="chart-panel">
+      <div class="chart-panel-head">
+        <span class="ticker">NIFTY 50</span>
+        <span class="price">24,812.35 &nbsp;+0.64%</span>
+      </div>
+      <svg viewBox="0 0 420 220" width="100%" style="display:block;">
+        <line x1="0" y1="55" x2="420" y2="55" stroke="#1c242f" stroke-width="1"/>
+        <line x1="0" y1="110" x2="420" y2="110" stroke="#1c242f" stroke-width="1"/>
+        <line x1="0" y1="165" x2="420" y2="165" stroke="#1c242f" stroke-width="1"/>
+        <!-- price line -->
+        <path d="M0,150 L30,158 L60,140 L90,146 L120,120 L150,128 L180,100 L210,108 L240,82 L270,90 L300,60 L330,70 L360,44 L390,52 L420,30"
+              fill="none" stroke="#EDEFF2" stroke-width="2"/>
+        <!-- SMA50 -->
+        <path d="M0,168 L60,158 L120,142 L180,124 L240,104 L300,86 L360,66 L420,48"
+              fill="none" stroke="#22B27D" stroke-width="1.6" stroke-dasharray="5 4"/>
+        <!-- SMA200 -->
+        <path d="M0,132 L60,133 L120,131 L180,126 L240,118 L300,108 L360,98 L420,90"
+              fill="none" stroke="#8C97A8" stroke-width="1.6" stroke-dasharray="2 4"/>
+        <!-- crossover marker -->
+        <circle cx="150" cy="127" r="4.5" fill="#22B27D"/>
+        <text x="158" y="120" fill="#22B27D" font-size="10" font-family="Inter">golden cross</text>
+        <circle cx="330" cy="70" r="4" fill="#EDEFF2" opacity="0"/>
+      </svg>
+      <div class="chart-legend">
+        <span><i class="swatch" style="background:#EDEFF2"></i>Price</span>
+        <span><i class="swatch" style="background:#22B27D"></i>SMA 50</span>
+        <span><i class="swatch" style="background:#8C97A8"></i>SMA 200</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="process">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Four steps, running before you're awake</h2>
+      <p>Setu sits between your brokerage account and the market, doing the watching and the clicking for you.</p>
+    </div>
+    <div class="process-list">
+      <div class="process-step">
+        <span class="num">01</span>
+        <h3>Connect your broker</h3>
+        <p>Link an account through an official trading API. Setu never asks for or stores your login password.</p>
+      </div>
+      <div class="process-step">
+        <span class="num">02</span>
+        <h3>Stream Nifty 50 data</h3>
+        <p>Daily and intraday prices are pulled continuously, with history backfilled for testing your rule before it goes live.</p>
+      </div>
+      <div class="process-step">
+        <span class="num">03</span>
+        <h3>Define your crossover</h3>
+        <p>Choose the short and long moving-average windows, or bring your own indicator. This is the only decision you make.</p>
+      </div>
+      <div class="process-step">
+        <span class="num">04</span>
+        <h3>Auto-enter and auto-exit</h3>
+        <p>When the rule fires, Setu places the order — an index ETF buy on a golden cross, a square-off on a death cross.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Move the averages, watch the signal change</h2>
+      <p>This is the same crossover logic that drives auto-entries — running here on a synthetic price series so you can feel how the two windows interact.</p>
+    </div>
+    <div class="demo-shell">
+      <div class="demo-controls">
+        <div class="control">
+          <label>Short average <b id="shortVal">20</b> days</label>
+          <input type="range" id="shortMA" min="5" max="60" value="20">
+        </div>
+        <div class="control">
+          <label>Long average <b id="longVal">100</b> days</label>
+          <input type="range" id="longMA" min="60" max="200" value="100">
+        </div>
+        <div class="signal-readout">
+          <div class="label">Current signal</div>
+          <div class="value hold" id="signalValue">—</div>
+          <div class="sub" id="signalSub">Adjust the sliders to run the rule.</div>
+        </div>
+      </div>
+      <div class="demo-chart-wrap">
+        <canvas id="demoCanvas" width="760" height="360"></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="brokers">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Where the orders actually go</h2>
+      <p>Setu places orders through your broker's own trading API. Coverage today:</p>
+    </div>
+    <div class="broker-grid">
+      <div class="broker-card">
+        <div class="top"><h3>Zerodha Kite Connect</h3><span class="tag official">Official API</span></div>
+        <p>Full order placement, positions and historical data. The most complete integration.</p>
+      </div>
+      <div class="broker-card">
+        <div class="top"><h3>Angel One SmartAPI</h3><span class="tag official">Official API</span></div>
+        <p>Order placement and live market feed via WebSocket, free for retail developers.</p>
+      </div>
+      <div class="broker-card">
+        <div class="top"><h3>Fyers API</h3><span class="tag official">Official API</span></div>
+        <p>REST and WebSocket access with sandbox testing before you connect a live account.</p>
+      </div>
+      <div class="broker-card">
+        <div class="top"><h3>Groww</h3><span class="tag caution">No public API</span></div>
+        <p>Groww does not offer an open retail trading API. We won't route live orders through unofficial workarounds — see the note below.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="risk">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Before you automate anything</h2>
+      <p>Worth reading slowly, not just accepting.</p>
+    </div>
+    <div class="risk-box">
+      <h3>Read this before connecting a live account</h3>
+      <ul>
+        <li><strong>Groww has no public trading API.</strong> Tools that log in on your behalf or scrape session tokens sit outside Groww's terms of service, can break without warning, and put your credentials at risk. Setu only executes through brokers with an official, documented API.</li>
+        <li><strong>A backtest is not a guarantee.</strong> A moving-average crossover that performed well on past Nifty 50 data can still lose money going forward, especially in sideways or choppy markets where it whipsaws between buy and sell signals.</li>
+        <li><strong>Automation does not remove risk, it removes hesitation.</strong> Set position sizing and a maximum loss you're comfortable with before switching auto-execution on.</li>
+        <li><strong>This page is a product concept, not investment advice.</strong> Algorithmic trading in India operates under SEBI and exchange guidelines that apply to you as the account holder, regardless of what places the order.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="cta-band" id="join">
+  <div class="wrap">
+    <h2>Get access when broker connections open.</h2>
+    <form class="waitlist" onsubmit="event.preventDefault(); this.querySelector('button').textContent='You\'re on the list';">
+      <input type="email" placeholder="you@example.com" required>
+      <button type="submit" class="btn btn-primary" style="border:none;">Join the waitlist</button>
+    </form>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <p>Setu is a concept product built to illustrate a rules-based Nifty 50 automation workflow. No live trading, brokerage, or investment advisory service is offered on this page.</p>
+    <div class="fcols">
+      <div class="fcol">
+        <h4>Product</h4>
+        <a href="#process">How it works</a>
+        <a href="#demo">Strategy demo</a>
+        <a href="#brokers">Brokers</a>
+      </div>
+      <div class="fcol">
+        <h4>Company</h4>
+        <a href="#risk">Risk notes</a>
+        <a href="#join">Waitlist</a>
+      </div>
+    </div>
+    <div style="margin-top:28px; padding-top:20px; border-top:1px solid var(--border); font-size:13px; color:var(--gold);">Powered by Prabhakar Singh</div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  const shortSlider = document.getElementById('shortMA');
+  const longSlider = document.getElementById('longMA');
+  const shortVal = document.getElementById('shortVal');
+  const longVal = document.getElementById('longVal');
+  const signalValue = document.getElementById('signalValue');
+  const signalSub = document.getElementById('signalSub');
+  const canvas = document.getElementById('demoCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // deterministic synthetic Nifty-like series, ~260 trading days
+  function genSeries(n){
+    let price = 22500;
+    let trendBias = 0.35;
+    const arr = [];
+    let seed = 42;
+    function rnd(){ seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+    for(let i=0;i<n;i++){
+      const cycle = Math.sin(i/28) * 40;
+      const noise = (rnd()-0.5) * 130;
+      trendBias += (rnd()-0.48) * 0.02;
+      price += trendBias*6 + cycle*0.3 + noise;
+      price = Math.max(price, 19000);
+      arr.push(price);
+    }
+    return arr;
+  }
+  const series = genSeries(260);
+
+  function sma(data, period){
+    const out = new Array(data.length).fill(null);
+    let sum = 0;
+    for(let i=0;i<data.length;i++){
+      sum += data[i];
+      if(i>=period) sum -= data[i-period];
+      if(i>=period-1) out[i] = sum/period;
+    }
+    return out;
+  }
+
+  function draw(){
+    const shortP = parseInt(shortSlider.value,10);
+    const longP = parseInt(longSlider.value,10);
+    shortVal.textContent = shortP;
+    longVal.textContent = longP;
+
+    const smaShort = sma(series, shortP);
+    const smaLong = sma(series, longP);
+
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+
+    const padding = 20;
+    const minP = Math.min(...series) - 200;
+    const maxP = Math.max(...series) + 200;
+    const x = i => padding + (i/(series.length-1)) * (w - padding*2);
+    const y = v => h - padding - ((v-minP)/(maxP-minP)) * (h - padding*2);
+
+    // gridlines
+    ctx.strokeStyle = '#1c242f';
+    ctx.lineWidth = 1;
+    for(let g=0; g<4; g++){
+      const gy = padding + g*(h-padding*2)/3;
+      ctx.beginPath(); ctx.moveTo(padding, gy); ctx.lineTo(w-padding, gy); ctx.stroke();
+    }
+
+    function plot(data, color, dash, width){
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      let started = false;
+      for(let i=0;i<data.length;i++){
+        if(data[i]===null) continue;
+        const px = x(i), py = y(data[i]);
+        if(!started){ ctx.moveTo(px,py); started = true; }
+        else ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    plot(series, '#3a4657', [], 1.4);
+    plot(smaLong, '#8C97A8', [2,4], 1.8);
+    plot(smaShort, '#22B27D', [6,4], 1.8);
+
+    // find crossovers & latest signal
+    let lastSignal = 'HOLD';
+    let lastCrossIdx = null;
+    for(let i=1;i<series.length;i++){
+      if(smaShort[i]===null || smaLong[i]===null || smaShort[i-1]===null || smaLong[i-1]===null) continue;
+      const prevDiff = smaShort[i-1]-smaLong[i-1];
+      const currDiff = smaShort[i]-smaLong[i];
+      if(prevDiff<=0 && currDiff>0){ lastSignal='BUY'; lastCrossIdx=i; }
+      if(prevDiff>=0 && currDiff<0){ lastSignal='SELL'; lastCrossIdx=i; }
+    }
+
+    if(lastCrossIdx!==null){
+      const cx = x(lastCrossIdx), cy = y(smaShort[lastCrossIdx]);
+      ctx.fillStyle = lastSignal==='BUY' ? '#22B27D' : '#E15554';
+      ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.fill();
+    }
+
+    signalValue.className = 'value ' + (lastSignal==='BUY' ? 'buy' : lastSignal==='SELL' ? 'sell' : 'hold');
+    signalValue.textContent = lastSignal + '_SIGNAL'.replace('_SIGNAL', lastSignal==='HOLD'?'':'_SIGNAL');
+    signalValue.textContent = lastSignal === 'HOLD' ? 'HOLD' : lastSignal + '_SIGNAL';
+    signalSub.textContent = lastCrossIdx!==null
+      ? 'Most recent crossover at day ' + lastCrossIdx + ' of the series.'
+      : 'No crossover yet in this window — averages haven\'t met.';
+  }
+
+  shortSlider.addEventListener('input', draw);
+  longSlider.addEventListener('input', draw);
+  draw();
+})();
+</script>
+
+</body>
+</html>

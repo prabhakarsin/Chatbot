@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Compass — Investment Research Assistant</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0F14; --panel:#141B24; --panel-2:#101620; --border:#232C38;
+    --text:#EDEFF2; --muted:#8C97A8; --buy:#22B27D; --sell:#E15554; --gold:#D8A44C;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; height:100vh; display:flex; flex-direction:column;}
+  h1{font-family:'Fraunces',serif; font-weight:500; font-size:18px; margin:0;}
+
+  header{padding:16px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
+  .warn{font-size:12px; color:var(--gold); max-width:52ch;}
+
+  #chat{flex:1; overflow-y:auto; padding:24px; display:flex; flex-direction:column; gap:16px;}
+  .msg{max-width:640px; padding:14px 16px; border-radius:8px; font-size:14.5px; line-height:1.55;}
+  .msg.user{align-self:flex-end; background:var(--panel); border:1px solid var(--border);}
+  .msg.assistant{align-self:flex-start; background:var(--panel-2); border:1px solid var(--border);}
+  .msg.assistant b{color:var(--text);}
+  .msg ul{margin:8px 0; padding-left:20px;}
+  .msg .src{font-size:12px; color:var(--muted); margin-top:10px; padding-top:8px; border-top:1px solid var(--border);}
+  .msg .src a{color:var(--gold); text-decoration:none;}
+  .disclaimer-inline{font-size:11.5px; color:#5f6a7a; margin-top:8px;}
+
+  .typing{align-self:flex-start; color:var(--muted); font-size:13px; padding:6px 16px;}
+
+  .chart-box{background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px; margin-top:10px;}
+  .chart-title{font-size:12px; color:var(--muted); margin-bottom:6px;}
+  canvas{width:100%; display:block;}
+
+  form{display:flex; gap:10px; padding:18px 24px; border-top:1px solid var(--border);}
+  textarea{
+    flex:1; resize:none; background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:12px 14px; font-family:inherit; font-size:14px; height:46px;
+  }
+  textarea:focus{outline:1px solid var(--gold);}
+  button{
+    background:var(--gold); border:none; color:#1A1305; font-weight:600; padding:0 22px;
+    border-radius:6px; cursor:pointer; font-size:14px;
+  }
+  button:disabled{opacity:0.5; cursor:not-allowed;}
+
+  .suggestions{display:flex; gap:8px; flex-wrap:wrap; padding:0 24px 14px;}
+  .chip{
+    font-size:12.5px; color:var(--muted); border:1px solid var(--border); border-radius:20px;
+    padding:6px 12px; cursor:pointer; background:none;
+  }
+  .chip:hover{border-color:var(--gold); color:var(--text);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Compass — investment research assistant</h1>
+  <div class="warn">Searches the web and summarizes what it finds. Not financial advice, and it can be wrong — verify anything before acting on it.</div>
+</header>
+<div style="padding:6px 24px 0; font-size:12px; color:var(--gold);">Powered by Prabhakar Singh</div>
+
+<div id="chat">
+  <div class="msg assistant">
+    Ask me about a stock, fund, sector, or market trend. I'll search for current information, tell you what I found and where it's from, and chart any numbers worth seeing — not hand you a buy or sell call.
+  </div>
+</div>
+
+<div class="suggestions">
+  <button class="chip" data-q="How has the Nifty 50 performed over the last 6 months and what's driving it?">Nifty 50, last 6 months</button>
+  <button class="chip" data-q="Compare the P/E ratios of HDFC Bank, ICICI Bank, and SBI right now">Compare bank P/E ratios</button>
+  <button class="chip" data-q="What are analysts currently saying about gold as an investment in 2026?">Gold outlook, 2026</button>
+</div>
+
+<form id="form">
+  <textarea id="input" placeholder="Ask about a stock, fund, or market trend..."></textarea>
+  <button type="submit" id="send">Ask</button>
+</form>
+
+<script>
+const chat = document.getElementById('chat');
+const form = document.getElementById('form');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+
+const SYSTEM_PROMPT = `You are Compass, an investment research assistant. Search the web for current, specific information before answering anything about a company, fund, index, or market trend — don't rely on memory for figures, prices, or recent news.
+
+Rules:
+- Present objective, sourced analysis: what the data shows, what's being reported, relevant context. Never state a directional prediction ("it will go up/down") or a buy/sell/hold call as if it were a fact.
+- When you cite something, name the source plainly in your prose (e.g. "according to Reuters..."), and keep exact quotes under 15 words.
+- If your answer includes a numeric series worth visualizing (a price trend, a comparison across a few items, historical returns), append ONE fenced block at the very end labeled chartdata containing ONLY valid JSON in this shape, nothing else in the block:
+\`\`\`chartdata
+{"type":"line or bar","title":"short title","labels":["...","..."],"series":[{"name":"series name","values":[1,2,3]}]}
+\`\`\`
+  Only include this block when you actually have real numbers to plot from your search results — never invent figures to fill it.
+- End every response that discusses a specific security or fund with one short line reminding the person this is informational, not financial advice.
+- Keep responses focused — a few short paragraphs or a tight list, not an essay.`;
+
+let history = [];
+
+function addMessage(role, html){
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = html;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function mdToHtml(text){
+  let html = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const lines = html.split('\n');
+  let out = '', inList = false;
+  for(const line of lines){
+    if(/^[-•]\s+/.test(line)){
+      if(!inList){ out += '<ul>'; inList = true; }
+      out += '<li>' + line.replace(/^[-•]\s+/, '') + '</li>';
+    } else {
+      if(inList){ out += '</ul>'; inList = false; }
+      if(line.trim()) out += '<p style="margin:6px 0;">' + line + '</p>';
+    }
+  }
+  if(inList) out += '</ul>';
+  return out;
+}
+
+function extractChartData(text){
+  const match = text.match(/```chartdata\s*([\s\S]*?)```/);
+  if(!match) return {text: text, chart: null};
+  const cleanText = text.replace(match[0], '').trim();
+  try{
+    const data = JSON.parse(match[1]);
+    return {text: cleanText, chart: data};
+  }catch(e){
+    return {text: cleanText, chart: null};
+  }
+}
+
+function drawChart(container, data){
+  const box = document.createElement('div');
+  box.className = 'chart-box';
+  box.innerHTML = `<div class="chart-title">${data.title || ''}</div><canvas width="560" height="240"></canvas>`;
+  container.appendChild(box);
+  const canvas = box.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height, pad = 32;
+  const allVals = data.series.flatMap(s => s.values);
+  const min = Math.min(0, ...allVals), max = Math.max(...allVals);
+  const colors = ['#D8A44C','#22B27D','#E15554','#8C97A8'];
+
+  ctx.strokeStyle = '#1c242f'; ctx.lineWidth = 1;
+  for(let g=0; g<4; g++){
+    const gy = pad + g*(h-pad*2)/3;
+    ctx.beginPath(); ctx.moveTo(pad,gy); ctx.lineTo(w-pad,gy); ctx.stroke();
+  }
+  const x = i => pad + (i/(data.labels.length-1||1)) * (w-pad*2);
+  const y = v => h-pad - ((v-min)/((max-min)||1)) * (h-pad*2);
+
+  if(data.type === 'bar'){
+    const n = data.series.length;
+    const groupW = (w-pad*2)/data.labels.length;
+    data.labels.forEach((lbl,i)=>{
+      data.series.forEach((s,si)=>{
+        const bw = groupW/(n+1);
+        const bx = pad + i*groupW + si*bw + bw/2;
+        const bh = h-pad - y(s.values[i]);
+        ctx.fillStyle = colors[si%colors.length];
+        ctx.fillRect(bx, y(s.values[i]), bw*0.8, (h-pad)-y(s.values[i]));
+      });
+    });
+  } else {
+    data.series.forEach((s,si)=>{
+      ctx.strokeStyle = colors[si%colors.length]; ctx.lineWidth = 2;
+      ctx.beginPath();
+      s.values.forEach((v,i)=>{ i===0 ? ctx.moveTo(x(i),y(v)) : ctx.lineTo(x(i),y(v)); });
+      ctx.stroke();
+    });
+  }
+
+  ctx.fillStyle = '#8C97A8'; ctx.font = '10px Inter';
+  data.labels.forEach((lbl,i)=>{
+    if(i % Math.ceil(data.labels.length/6) === 0){
+      ctx.fillText(lbl, x(i)-10, h-10);
+    }
+  });
+
+  if(data.series.length > 1){
+    let lx = pad;
+    data.series.forEach((s,si)=>{
+      ctx.fillStyle = colors[si%colors.length];
+      ctx.fillRect(lx, 8, 8, 8);
+      ctx.fillStyle = '#8C97A8';
+      ctx.fillText(s.name, lx+12, 16);
+      lx += ctx.measureText(s.name).width + 30;
+    });
+  }
+}
+
+async function ask(question){
+  addMessage('user', mdToHtml(question));
+  history.push({role:'user', content: question});
+  const typing = document.createElement('div');
+  typing.className = 'typing';
+  typing.textContent = 'Searching and analyzing...';
+  chat.appendChild(typing);
+  chat.scrollTop = chat.scrollHeight;
+  sendBtn.disabled = true;
+
+  try{
+    const response = await fetch('/api/ask', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ history })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error);
+    const fullText = data.text || '';
+
+    history.push({role:'assistant', content: fullText});
+    typing.remove();
+
+    const {text, chart} = extractChartData(fullText);
+    const div = addMessage('assistant', mdToHtml(text));
+    if(chart && chart.labels && chart.series){
+      drawChart(div, chart);
+    }
+    div.innerHTML += '<div class="disclaimer-inline">Research summary, not investment advice.</div>';
+  }catch(err){
+    typing.remove();
+    addMessage('assistant', 'Something went wrong reaching the research service. Try again in a moment.');
+  }
+  sendBtn.disabled = false;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const q = input.value.trim();
+  if(!q) return;
+  input.value = '';
+  ask(q);
+});
+
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => ask(chip.dataset.q));
+});
+</script>
+
+</body>
+</html>

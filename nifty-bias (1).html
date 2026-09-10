@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nifty 50 — Directional Bias Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0F14; --panel:#141B24; --panel-2:#101620; --border:#232C38;
+    --text:#EDEFF2; --muted:#8C97A8; --buy:#22B27D; --sell:#E15554; --gold:#D8A44C;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; line-height:1.5;}
+  h1,h2,h3{font-family:'Fraunces',serif; font-weight:500; margin:0;}
+  p{color:var(--muted); margin:0;}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 28px;}
+  @media (max-width:640px){.wrap{padding:0 18px;}}
+
+  header{padding:40px 0 28px; border-bottom:1px solid var(--border);}
+  .head-row{display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;}
+  h1{font-size:clamp(26px,3.4vw,34px);}
+  .sub{font-size:14.5px; margin-top:8px; max-width:56ch;}
+  .snapshot{
+    background:var(--panel); border:1px solid var(--border); border-radius:4px;
+    padding:16px 20px; min-width:220px; text-align:right;
+  }
+  .snapshot .val{font-family:'Fraunces',serif; font-size:26px; font-variant-numeric:tabular-nums;}
+  .snapshot .chg{font-size:13px; color:var(--sell);}
+  .snapshot .asof{font-size:11px; color:#5f6a7a; margin-top:6px;}
+  .live-pill{display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); margin-top:6px;}
+  .live-dot{width:6px; height:6px; border-radius:50%; background:#5f6a7a;}
+  .live-dot.on{background:var(--buy); box-shadow:0 0 0 2px rgba(34,178,125,0.25);}
+  .live-dot.err{background:var(--sell);}
+
+  .warn-strip{
+    background:#1a1310; border:1px solid #5c4420; border-radius:4px;
+    padding:14px 18px; font-size:13.5px; color:var(--gold); margin:24px 0 0;
+  }
+
+  section{padding:36px 0;}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:4px; overflow:hidden;}
+  @media (max-width:820px){.grid3{grid-template-columns:1fr;}}
+  .card{background:var(--panel); padding:24px;}
+  .card .kicker{font-size:12px; color:var(--muted); margin-bottom:8px;}
+  .card .reading{font-family:'Fraunces',serif; font-size:22px; margin-bottom:10px;}
+  .reading.buy{color:var(--buy);} .reading.sell{color:var(--sell);} .reading.neutral{color:var(--muted);}
+  .card p{font-size:13.5px;}
+  .bar{height:6px; border-radius:3px; background:var(--panel-2); margin:14px 0 6px; overflow:hidden;}
+  .bar-fill{height:100%; border-radius:3px;}
+
+  .composite{
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px;
+    background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:26px 28px; margin-top:24px;
+  }
+  .composite .label{font-size:13px; color:var(--muted);}
+  .composite .verdict{font-family:'Fraunces',serif; font-size:28px; margin-top:6px;}
+  .composite .note{font-size:13px; max-width:40ch;}
+
+  h2{font-size:20px; margin-bottom:6px;}
+  .section-sub{font-size:14px; margin-bottom:20px; max-width:60ch;}
+
+  .steps{border:1px solid var(--border); border-radius:4px; overflow:hidden;}
+  .step{padding:18px 22px; border-bottom:1px solid var(--border); display:flex; gap:16px;}
+  .step:last-child{border-bottom:none;}
+  .step .n{font-family:'Fraunces',serif; color:var(--gold); font-size:18px; flex-shrink:0;}
+  .step h3{font-size:14.5px; font-weight:600; font-family:'Inter'; margin-bottom:4px;}
+  .step p{font-size:13.5px;}
+
+  footer{padding:36px 0 50px; border-top:1px solid var(--border); margin-top:20px;}
+  footer p{font-size:12.5px; max-width:70ch;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="head-row">
+      <div>
+        <h1>Nifty 50 — Directional Bias Dashboard</h1>
+        <p class="sub">Reads trend, momentum, and options-chain positioning as a probabilistic lean — not a forecast of a price or a date. Every reading below can be wrong, often is, and can flip within a session.</p>
+      </div>
+      <div class="snapshot">
+        <div class="val" id="snapVal">23,767.45</div>
+        <div class="chg" id="snapChg">−102.15 (−0.43%)</div>
+        <div class="asof" id="snapAsOf">Close, 25 Jul 2026 (static — connect the API below to go live)</div>
+        <div class="live-pill"><span class="live-dot" id="liveDot"></span><span id="liveLabel">Not connected</span></div>
+      </div>
+    </div>
+    <div class="warn-strip">This dashboard is educational. It is not investment advice, and no combination of these indicators reliably predicts future price direction.</div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>Three independent reads</h2>
+    <p class="section-sub">Each panel uses a different kind of data — price trend, price momentum, and options-chain positioning. They're shown separately on purpose: when they agree, that's a stronger (still not certain) lean than any one alone.</p>
+    <div class="grid3">
+      <div class="card">
+        <div class="kicker">TREND · 50-day vs 200-day SMA</div>
+        <div class="reading sell">Bearish</div>
+        <p>Price is trading below both moving averages, and the 50-day sits below the 200-day — the "death cross" configuration. Trend-followers read this as pressure to the downside until a fresh crossover.</p>
+        <div class="bar"><div class="bar-fill" style="width:32%; background:var(--sell);"></div></div>
+      </div>
+      <div class="card">
+        <div class="kicker">MOMENTUM · 14-day RSI</div>
+        <div class="reading neutral">Neutral, 44</div>
+        <p>RSI sits in the 30–70 range with no divergence from price — momentum isn't oversold or overbought enough to argue for an imminent reversal either way.</p>
+        <div class="bar"><div class="bar-fill" style="width:44%; background:var(--muted);"></div></div>
+      </div>
+      <div class="card">
+        <div class="kicker">OPTIONS CHAIN · Put-Call Ratio (OI)</div>
+        <div class="reading buy">Mildly bullish, PCR 1.18</div>
+        <p>More open interest sitting in puts than calls. Read on its own this is often a mild contrarian-bullish signal, since heavy put writing implies traders selling downside insurance rather than betting on it.</p>
+        <div class="bar"><div class="bar-fill" style="width:59%; background:var(--buy);"></div></div>
+      </div>
+    </div>
+
+    <div class="composite">
+      <div>
+        <div class="label">Composite read</div>
+        <div class="verdict">Mixed — trend down, options chain mildly hedged-bullish</div>
+      </div>
+      <p class="note">The three panels disagree, which is common and is itself informative: it argues against sizing a position as if direction were settled either way.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Making this live</h2>
+    <p class="section-sub">To get real auto-refreshing numbers here instead of a fixed snapshot, three things have to be true, in this order:</p>
+    <div class="steps">
+      <div class="step">
+        <div class="n">1</div>
+        <div>
+          <h3>A data source with an actual API</h3>
+          <p>Google Finance and NSE's website don't offer public, CORS-enabled access for a page like this to call directly. Zerodha Kite Connect, Angel One SmartAPI, or a paid feed (e.g. Upstox, TrueData) will give you both index price and the options-chain OI/PCR data the sentiment panel needs.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">2</div>
+        <div>
+          <h3>A small backend to hold the key</h3>
+          <p>API keys can't live in a browser page without being exposed to anyone who views the source. A lightweight serverless function (Vercel/Cloudflare Workers/AWS Lambda) fetches the data server-side and this page polls that function instead.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">3</div>
+        <div>
+          <h3>Deploy it somewhere with a real URL</h3>
+          <p>Push this file (plus the backend function) to a GitHub repo and connect it to Vercel or Netlify's free tier — you get a permanent https:// link you can open from any device, and it'll redeploy automatically whenever you push changes.</p>
+        </div>
+      </div>
+    </div>
+    <p class="section-sub" style="margin-top:18px;">I can write the actual serverless function and wire the polling in if you tell me which broker/data API you'll use — that's the piece that makes the numbers real instead of a snapshot.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Indicator methodology shown here (SMA crossover, RSI, PCR) reflects commonly used technical and options-market tools. None are proprietary, none carry a stated or implied success rate, and none should be sized as if they were certain. Options trading carries substantial risk of loss.</p>
+    <p style="color:var(--gold); margin-top:14px;">Powered by Prabhakar Singh</p>
+  </div>
+</footer>
+
+<script>
+// Polls /api/nifty-quote.js once it's deployed alongside this page on
+// Vercel (or any host that runs the serverless function at that path).
+// Until then, this fails silently and the static snapshot above stands.
+(function(){
+  const dot = document.getElementById('liveDot');
+  const label = document.getElementById('liveLabel');
+  const val = document.getElementById('snapVal');
+  const chg = document.getElementById('snapChg');
+  const asOf = document.getElementById('snapAsOf');
+
+  async function poll(){
+    try{
+      const res = await fetch('/api/nifty-quote', {cache:'no-store'});
+      if(!res.ok) throw new Error('bad response');
+      const d = await res.json();
+      val.textContent = Number(d.ltp).toLocaleString('en-IN', {minimumFractionDigits:2});
+      const sign = d.change >= 0 ? '+' : '−';
+      chg.textContent = `${sign}${Math.abs(d.change).toFixed(2)} (${Math.abs(d.changePct).toFixed(2)}%)`;
+      chg.style.color = d.change >= 0 ? 'var(--buy)' : 'var(--sell)';
+      asOf.textContent = 'Live — updated ' + new Date(d.updatedAt).toLocaleTimeString('en-IN');
+      dot.className = 'live-dot on';
+      label.textContent = 'Live via Angel One';
+    }catch(e){
+      dot.className = 'live-dot err';
+      label.textContent = 'API not reachable — showing static snapshot';
+    }
+  }
+  poll();
+  setInterval(poll, 30000); // every 30s — well within SmartAPI's rate limits
+})();
+</script>
+</body>
+</html>
