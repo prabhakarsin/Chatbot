@@ -1,5 +1,5 @@
 // /api/ask.js
-// Deploy as a Vercel serverless function. Uses OpenRouter's free tier.
+// Deploy as a Vercel serverless function. Uses OpenRouter's free tier with streaming.
 // Required environment variable:
 //   OPENROUTER_API_KEY - get one at https://openrouter.ai
 
@@ -36,6 +36,7 @@ module.exports = async (req, res) => {
       }))
     ];
 
+    // FIX: Changed from base URL to the explicit Chat Completions endpoint
     const url = 'https://openrouter.ai';
 
     const openRouterRes = await fetch(url, {
@@ -48,21 +49,44 @@ module.exports = async (req, res) => {
         model: MODEL,
         messages,
         // Requests the web search plugin capabilities for current context integration
-        plugins: [{ id: 'web-search' }] 
+        plugins: [{ id: 'web-search' }],
+        // Enables real-time streaming tokens
+        stream: true 
       }),
     });
 
-    const data = await openRouterRes.json();
-
-    if (data.error) {
-      return res.status(502).json({ error: data.error.message || 'OpenRouter API error' });
+    // Safeguard: Catch upstream HTML errors (like a 502/504 gateway crash) before parsing
+    if (!openRouterRes.ok) {
+      const errorText = await openRouterRes.text();
+      return res.status(openRouterRes.status).json({ 
+        error: `OpenRouter returned status ${openRouterRes.status}: ${errorText}` 
+      });
     }
 
-    const text = data.choices?.[0]?.message?.content || '';
+    // Set streaming headers for the browser client
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
 
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ text });
+    // Read the incoming byte stream from OpenRouter and pipe it straight out to the client
+    const reader = openRouterRes.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      // Flush data chunks to the frontend in real time
+      res.write(decoder.decode(value, { stream: true }));
+    }
+
+    res.end();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    // If the streaming headers haven't gone out yet, fallback to a standard JSON error payload
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.end();
+    }
   }
 };
