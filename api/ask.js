@@ -12,7 +12,7 @@
 // this use case: fast, supports Google Search grounding, good quality for
 // research-style answers.
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.6-flash';
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. Use Google Search grounding to find current, specific information before answering anything about a company, fund, index, or market trend — don't rely on memory for figures, prices, or recent news.
 
