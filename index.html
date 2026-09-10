@@ -230,7 +230,7 @@ async function ask(question){
     div.innerHTML += '<div class="disclaimer-inline">Research summary, not investment advice.</div>';
   }catch(err){
     typing.remove();
-    addMessage('assistant', 'Something went wrong reaching the research service. Try again in a moment.');
+    addMessage('assistant', 'Something went wrong reaching the research service: <b>' + (err.message || 'unknown error') + '</b>');
   }
   sendBtn.disabled = false;
   chat.scrollTop = chat.scrollHeight;
