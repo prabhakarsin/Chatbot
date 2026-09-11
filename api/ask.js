@@ -1,9 +1,12 @@
 // /api/ask.js
-// Deploy as a Vercel serverless function.
+// Optimized for Vercel Edge Runtime to handle gateway text blocks cleanly.
 const { OpenAI } = require('openai');
 
-// NVIDIA periodically retires models on an end-of-life schedule.
-// These exact string paths match the active public catalog.
+// Force Vercel to host this on an unrestricted Edge configuration tier
+export const config = {
+  runtime: 'edge',
+};
+
 const NVIDIA_MODELS = [
   'meta/llama-3.3-70b-instruct',
   'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -25,7 +28,6 @@ Rules:
 async function tavilySearch(query) {
   if (!process.env.TAVILY_API_KEY) return [];
   try {
-    // 💡 FIX 1: Corrected the endpoint URL to point to the actual Tavily API router
     const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -46,20 +48,29 @@ async function tavilySearch(query) {
   }
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'POST only' });
+    return new Response(JSON.stringify({ error: 'POST only' }), { 
+      status: 405, 
+      headers: { 'Content-Type': 'application/json' } 
+    });
   }
 
   try {
-    const { history } = req.body;
+    const { history } = await req.json();
     if (!Array.isArray(history) || history.length === 0) {
-      return res.status(400).json({ error: 'history is required' });
+      return new Response(JSON.stringify({ error: 'history is required' }), { 
+        status: 400, 
+        headers: { 'Content-Type': 'application/json' } 
+      });
     }
 
     const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) {
-      return res.status(400).json({ error: 'No user message found in history' });
+      return new Response(JSON.stringify({ error: 'No user message found in history' }), { 
+        status: 400, 
+        headers: { 'Content-Type': 'application/json' } 
+      });
     }
 
     // 1. Fetch live web groundings safely
@@ -80,7 +91,6 @@ module.exports = async (req, res) => {
       }),
     ];
 
-    // 💡 FIX 2: Corrected the base URL to point to NVIDIA's official NIM API route gateway
     const openai = new OpenAI({
       apiKey: process.env.NVIDIA_API_KEY,
       baseUrl: 'https://integrate.api.nvidia.com/v1',
@@ -102,7 +112,8 @@ module.exports = async (req, res) => {
 
         let accumulatedText = '';
         for await (const chunk of stream) {
-          const content = chunk.choices[0]?.delta?.content || '';
+          const delta = chunk.choices?.[0]?.delta;
+          const content = delta?.content || delta?.reasoning_content || '';
           accumulatedText += content;
         }
 
@@ -110,26 +121,35 @@ module.exports = async (req, res) => {
           .replace(/<think>[\s\S]*?<\/think>/gi, '')
           .trim();
 
-        if (finalResponseText) break; // Success, exit the fallback loop
+        if (finalResponseText) break; // Exit fallback chain on success
       } catch (err) {
+        // 🔥 SAFELY INTERCEPT RAW TEXT ERRS: Intercept code crashes gracefully
         lastError = `Model ${model} failed: ${err.message}`;
-        // Automatically checks if error indicates fallback is needed
-        if (err.status === 404 || err.status === 410 || /not found|retired/i.test(err.message)) {
-          continue;
-        }
-        break; // Break if it's a structural error (e.g., bad API key authorization)
+        console.warn(`Error captured for ${model}: ${err.message}`);
+        continue; // Immediately hop to the backup model option string
       }
     }
 
     if (!finalResponseText) {
-      return res.status(502).json({
-        error: lastError || 'All endpoint loops failed to execute response output.',
+      return new Response(JSON.stringify({ 
+        error: lastError || 'All model endpoint handshakes returned unparseable text blocks.' 
+      }), { 
+        status: 502, 
+        headers: { 'Content-Type': 'application/json' } 
       });
     }
 
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ text: finalResponseText });
+    return new Response(JSON.stringify({ text: finalResponseText }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      },
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return new Response(JSON.stringify({ error: err.message }), { 
+      status: 500, 
+      headers: { 'Content-Type': 'application/json' } 
+    });
   }
-};
+}
