@@ -5,7 +5,8 @@ export const config = {
   runtime: 'edge',
 };
 
-// Supported active production models on NVIDIA NIM
+// Supported active production models on NVIDIA NI
+// Look for this block near the top of your /api/ask.js file:
 const NVIDIA_MODELS = [
   'meta/llama-3.3-70b-instruct',
   'nvidia/llama-3.1-nemotron-70b-instruct'
