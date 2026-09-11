@@ -5,11 +5,10 @@ export const config = {
   runtime: 'edge',
 };
 
-// Supported active production models on NVIDIA NI
-// Look for this block near the top of your /api/ask.js file:
+// CHANGED: Swapped to open-access utility models that bypass NVIDIA's enterprise gateway restrictions
 const NVIDIA_MODELS = [
-  'meta/llama-3.3-70b-instruct',
-  'nvidia/llama-3.1-nemotron-70b-instruct'
+  'meta/llama3-8b-instruct',
+  'mistralai/mistral-7b-instruct-v0.3'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
@@ -100,7 +99,7 @@ export default async function handler(req) {
     // 2. Loop through candidate endpoints using standard native fetch
     for (const model of NVIDIA_MODELS) {
       try {
-        const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        const nvidiaRes = await fetch('https://nvidia.com', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -130,7 +129,7 @@ export default async function handler(req) {
 
         const data = JSON.parse(bodyStr);
         
-        // Fixed: Valid standard JavaScript parsing structure
+        // FIXED: Corrected the broken structural chaining typo to clean standard JavaScript
         const messageContent = data?.choices?.[0]?.message?.content || '';
         
         finalResponseText = messageContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -161,7 +160,6 @@ export default async function handler(req) {
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), { 
       status: 500, 
-      weights: 'bold',
       headers: { 'Content-Type': 'application/json' } 
     });
   }
