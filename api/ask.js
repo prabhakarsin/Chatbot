@@ -1,12 +1,13 @@
 // /api/ask.js
+// Deploy as a Vercel serverless function.
 
-// NVIDIA periodically retires models on an end-of-life schedule.
-// These public-access identifiers ensure stable routing without account tier issues.
+// NVIDIA periodically retires models on an end-of-life schedule. 
+// Standard format for public API keys uses these specific vendor handles.
 const NVIDIA_MODELS = [
-  // 🟢 ACTIVE & STABLE: Highly efficient, fast, and optimized for data/coding tasks
+  // 🟢 CURRENT & ACTIVE: Premium data-processing engine on public tiers
   'deepseek-ai/deepseek-v3',
 
-  // 🟢 ACTIVE & STABLE: Powerful alternative mixture-of-experts model for research
+  // 🟢 CURRENT & ACTIVE: Reliable long-context backup model
   'moonshotai/kimi-k3'
 ];
 
@@ -17,35 +18,62 @@ Rules:
 - When you use something from the search results, name the source plainly in your prose (e.g. "according to Reuters..."), and keep exact quotes under 15 words.
 - If your answer includes a numeric series worth visualizing (a price trend, a comparison across a few items, historical returns), append ONE fenced block at the very end labeled chartdata containing ONLY valid JSON, nothing else in the block:
 \`\`\`chartdata
-{"type":"line or bar","title":"short title","labels":["...","..."],"series":[{"name":"series name","values":[1,2,3]}]}
+{"type":"line or bar","title":"short title","labels":["...","..."],"series":[{"name":"series name","values":}]}
 \`\`\`
   Only include this block when you have real numbers from the search results — never invent figures.
 - End every response that discusses a specific security or fund with one short line reminding the person this is informational, not financial advice.
 - Keep responses focused — a few short paragraphs or a tight list, not an essay.`;
 
 async function tavilySearch(query) {
-  const res = await fetch('https://tavily.com', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: process.env.TAVILY_API_KEY,
-      query,
-      search_depth: 'basic',
-      max_results: 6,
-      include_answer: false,
-    }),
-  });
-  
-  const bodyText = await res.text();
-  let data;
-  try {
-    data = JSON.parse(bodyText);
-  } catch (e) {
-    throw new Error(`Tavily returned invalid JSON: ${bodyText.slice(0, 200)}`);
+  // 🔥 FIX 1: Safely handle missing or empty environment variable states
+  if (!process.env.TAVILY_API_KEY) {
+    console.warn("Missing TAVILY_API_KEY environment variable.");
+    return [];
   }
-  
-  if (data.error) throw new Error(data.error);
-  return data.results || [];
+
+  try {
+    const res = await fetch('https://tavily.com', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json' 
+      },
+      body: JSON.stringify({
+        api_key: process.env.TAVILY_API_KEY,
+        query,
+        search_depth: 'basic',
+        max_results: 6,
+        include_answer: false,
+      }),
+    });
+    
+    const bodyText = await res.text();
+    
+    // 🔥 FIX 2: If the response is blank, do not try to parse it
+    if (!bodyText || bodyText.trim() === '') {
+      console.warn("Tavily returned an empty string response.");
+      return [];
+    }
+
+    let data;
+    try {
+      data = JSON.parse(bodyText);
+    } catch (e) {
+      // If it's a raw string error page from the server, log it gracefully instead of crashing
+      console.error(`Failed to parse Tavily response: ${bodyText}`);
+      return [];
+    }
+    
+    if (data.error) {
+      console.error("Tavily API Error:", data.error);
+      return [];
+    }
+    
+    return data.results || [];
+  } catch (err) {
+    console.error("Network error during Tavily fetch:", err.message);
+    return []; // Return an empty array so the application drops back to the model smoothly
+  }
 }
 
 module.exports = async (req, res) => {
@@ -65,9 +93,9 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'No user message found in history' });
     }
 
-    // 1. Search the web for the latest question
+    // 1. Search the web safely
     const results = await tavilySearch(lastUserMsg.content);
-    const sourcesBlock = results.length
+    const sourcesBlock = results && results.length
       ? 'Web search results:\n\n' + results.map((r, i) =>
           `[${i + 1}] ${r.title}\n${r.url}\n${(r.content || '').slice(0, 500)}`
         ).join('\n\n')
@@ -107,9 +135,9 @@ module.exports = async (req, res) => {
       
       let data = {};
       try {
-        data = JSON.parse(bodyStr);
+        if (bodyStr) data = JSON.parse(bodyStr);
       } catch (e) {
-        // Response wasn't JSON, handle it as raw error text
+        // Fallback for non-JSON string errors
       }
 
       const isRetiredOrMissing =
@@ -119,17 +147,16 @@ module.exports = async (req, res) => {
 
       if (!nvidiaRes.ok || data.error) {
         lastError = `NVIDIA API (${model}) returned ${nvidiaRes.status}: ${bodyStr.slice(0, 300)}`;
-        if (isRetiredOrMissing) continue; // Try the next model candidate
-        break; // Stop loop on structural problems (e.g. invalid API key)
+        if (isRetiredOrMissing) continue; 
+        break; 
       }
 
-      // 🔥 LOGIC FIX: Handle nested choices chaining properly
       const message = data.choices?.[0]?.message || {};
       text = (message.content || message.reasoning_content || '')
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .trim();
 
-      if (text) break; // Success!
+      if (text) break; 
       lastError = `Model ${model} returned an empty response.`;
     }
 
