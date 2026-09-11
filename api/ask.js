@@ -21,9 +21,9 @@
 // Check https://build.nvidia.com for the current catalog if all of these
 // eventually go stale too.
 const NVIDIA_MODELS = [
-  'meta/llama-3.1-70b-instruct',
-  'nvidia/llama-3.1-nemotron-70b-instruct',
-  'mistralai/mixtral-8x22b-instruct-v0.1',
+  'nvidia/llama-3.1-nemotron-70b-instruct', // Top recommendation for research & data
+  'mistralai/mistral-large-2-instruct',      // Excellent vendor upgrade
+  'meta/llama-3.1-70b-instruct'              // Fast & reliable benchmark model
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
