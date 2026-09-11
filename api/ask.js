@@ -1,12 +1,12 @@
 // /api/ask.js
 // Deploy as a Vercel serverless function.
+const { OpenAI } = require('openai');
 
+// NVIDIA periodically retires models on an end-of-life schedule.
+// These exact string paths match the active public catalog.
 const NVIDIA_MODELS = [
-  // 🟢 CURRENT & ACTIVE: Flagship custom NVIDIA model path
-  'nvidia/llama-3.1-nemotron-70b-instruct',
-  
-  // 🟢 CURRENT & ACTIVE: Meta's direct drop-in replacement path
-  'meta/llama-3.3-70b-instruct'
+  'meta/llama-3.3-70b-instruct',
+  'nvidia/llama-3.1-nemotron-70b-instruct'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
@@ -16,7 +16,7 @@ Rules:
 - When you use something from the search results, name the source plainly in your prose (e.g. "according to Reuters..."), and keep exact quotes under 15 words.
 - If your answer includes a numeric series worth visualizing (a price trend, a comparison across a few items, historical returns), append ONE fenced block at the very end labeled chartdata containing ONLY valid JSON, nothing else in the block:
 \`\`\`chartdata
-{"type":"line or bar","title":"short title","labels":["...","..."],"series":[{"name":"series name","values":}]}
+{"type":"line or bar","title":"short title","labels":["...","..."],"series":[{"name":"series name","values":[]}]}
 \`\`\`
   Only include this block when you have real numbers from the search results — never invent figures.
 - End every response that discusses a specific security or fund with one short line reminding the person this is informational, not financial advice.
@@ -25,7 +25,8 @@ Rules:
 async function tavilySearch(query) {
   if (!process.env.TAVILY_API_KEY) return [];
   try {
-    const res = await fetch('https://tavily.com', {
+    // 💡 FIX 1: Corrected the endpoint URL to point to the actual Tavily API router
+    const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -61,6 +62,7 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'No user message found in history' });
     }
 
+    // 1. Fetch live web groundings safely
     const results = await tavilySearch(lastUserMsg.content);
     const sourcesBlock = results.length
       ? 'Web search results:\n\n' + results.map((r, i) =>
@@ -78,66 +80,50 @@ module.exports = async (req, res) => {
       }),
     ];
 
+    // 💡 FIX 2: Corrected the base URL to point to NVIDIA's official NIM API route gateway
+    const openai = new OpenAI({
+      apiKey: process.env.NVIDIA_API_KEY,
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+    });
+
     let finalResponseText = '';
     let lastError = null;
 
+    // 2. Loop through candidate endpoints safely
     for (const model of NVIDIA_MODELS) {
-      const nvidiaRes = await fetch('https://nvidia.com', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.NVIDIA_API_KEY}`,
-        },
-        body: JSON.stringify({
+      try {
+        const stream = await openai.chat.completions.create({
           model,
           messages,
           temperature: 0.4,
           max_tokens: 1024,
-          stream: true // 🔥 FIX 1: Enforce streaming to prevent empty choice responses from NVIDIA NIM
-        }),
-      });
+          stream: true,
+        });
 
-      if (!nvidiaRes.ok) {
-        const errText = await nvidiaRes.text();
-        lastError = `NVIDIA API (${model}) returned ${nvidiaRes.status}: ${errText.slice(0, 200)}`;
-        continue;
-      }
-
-      // 🔥 FIX 2: Safely parse Server-Sent Events (SSE) data stream chunks
-      const reader = nvidiaRes.body.setEncoding('utf-8');
-      let accumulatedText = '';
-      
-      for await (const chunk of nvidiaRes.body) {
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          const cleanLine = line.trim();
-          if (!cleanLine || !cleanLine.startsWith('data:')) continue;
-          
-          const dataStr = cleanLine.replace(/^data:\s*/, '');
-          if (dataStr === '[DONE]') break;
-          
-          try {
-            const parsed = JSON.parse(dataStr);
-            const delta = parsed.choices?.[0]?.delta;
-            const content = delta?.content || delta?.reasoning_content || '';
-            accumulatedText += content;
-          } catch (e) {
-            // Drop unparseable heartbeat keep-alive frames safely
-          }
+        let accumulatedText = '';
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          accumulatedText += content;
         }
+
+        finalResponseText = accumulatedText
+          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+          .trim();
+
+        if (finalResponseText) break; // Success, exit the fallback loop
+      } catch (err) {
+        lastError = `Model ${model} failed: ${err.message}`;
+        // Automatically checks if error indicates fallback is needed
+        if (err.status === 404 || err.status === 410 || /not found|retired/i.test(err.message)) {
+          continue;
+        }
+        break; // Break if it's a structural error (e.g., bad API key authorization)
       }
-
-      finalResponseText = accumulatedText
-        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-        .trim();
-
-      if (finalResponseText) break; // Success, stop falling through the models array
-      lastError = `Model ${model} streamed an empty text block.`;
     }
 
     if (!finalResponseText) {
       return res.status(502).json({
-        error: lastError || 'All models failed to generate content.',
+        error: lastError || 'All endpoint loops failed to execute response output.',
       });
     }
 
