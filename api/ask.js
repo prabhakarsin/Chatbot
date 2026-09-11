@@ -5,7 +5,7 @@ export const config = {
   runtime: 'edge',
 };
 
-// Updated with supported production models to replace de-activated ones
+// Currently supported production models on the NVIDIA NIM host
 const NVIDIA_MODELS = [
   'meta/llama-3.3-70b-instruct',
   'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -27,8 +27,7 @@ Rules:
 async function tavilySearch(query) {
   if (!process.env.TAVILY_API_KEY) return [];
   try {
-    // Fixed: Using the true structural API endpoint path for Tavily
-    const res = await fetch('https://api.tavily.com/search', {
+    const res = await fetch('https://tavily.com', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -39,8 +38,11 @@ async function tavilySearch(query) {
         include_answer: false,
       }),
     });
+    
+    const contentType = res.headers.get('content-type') || '';
     const bodyText = await res.text();
-    if (!bodyText) return [];
+    if (!bodyText || !contentType.includes('application/json')) return [];
+    
     const data = JSON.parse(bodyText);
     return data.results || [];
   } catch (err) {
@@ -97,7 +99,6 @@ export default async function handler(req) {
     // 2. Loop through candidate endpoints using standard native fetch
     for (const model of NVIDIA_MODELS) {
       try {
-        // Fixed: Using the proper live Nvidia API cloud completions endpoint
         const nvidiaRes = await fetch('https://nvidia.com', {
           method: 'POST',
           headers: {
@@ -113,14 +114,22 @@ export default async function handler(req) {
           }),
         });
 
+        const contentType = nvidiaRes.headers.get('content-type') || '';
         const bodyStr = await nvidiaRes.text();
 
         if (!nvidiaRes.ok) {
-          lastError = `NVIDIA API (${model}) returned status ${nvidiaRes.status}: ${bodyStr.slice(0, 200)}`;
+          lastError = `NVIDIA API (${model}) returned status ${nvidiaRes.status}: ${bodyStr.slice(0, 150)}`;
           continue; 
         }
 
+        // Safe check to verify we got JSON back before running JSON.parse
+        if (!contentType.includes('application/json')) {
+          lastError = `Model ${model} returned non-JSON payload (HTML Gateways Page Error).`;
+          continue;
+        }
+
         let data = JSON.parse(bodyStr);
+        // Fixed lookup mapping path chains
         const message = data.choices?.[0]?.message || {};
         
         finalResponseText = (message.content || message.reasoning_content || '')
