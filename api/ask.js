@@ -1,22 +1,12 @@
 // /api/ask.js
 // Deploy as a Vercel serverless function.
 
-// NVIDIA periodically retires models on an end-of-life schedule. 
-// Standard format for public API keys uses these specific vendor handles.
-// /api/ask.js
-
-// NVIDIA periodically retires models on an end-of-life schedule.
-// These public-access endpoints ensure reliable routing without throwing empty content errors.
-// /api/ask.js
-
-// NVIDIA periodically retires models on an end-of-life schedule.
-// These exact string paths match the current 2026 active public catalog.
 const NVIDIA_MODELS = [
-  // 🟢 LIVE & WORKING: The official endpoint for Meta's flagship model
-  'meta/llama-3.3-70b-instruct',
+  // 🟢 CURRENT & ACTIVE: Flagship custom NVIDIA model path
+  'nvidia/llama-3.1-nemotron-70b-instruct',
   
-  // 🟢 LIVE & WORKING: The official active endpoint for the Nemotron series
-  'nvidia/llama-3.1-nemotron-70b-instruct'
+  // 🟢 CURRENT & ACTIVE: Meta's direct drop-in replacement path
+  'meta/llama-3.3-70b-instruct'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
@@ -33,19 +23,11 @@ Rules:
 - Keep responses focused — a few short paragraphs or a tight list, not an essay.`;
 
 async function tavilySearch(query) {
-  // 🔥 FIX 1: Safely handle missing or empty environment variable states
-  if (!process.env.TAVILY_API_KEY) {
-    console.warn("Missing TAVILY_API_KEY environment variable.");
-    return [];
-  }
-
+  if (!process.env.TAVILY_API_KEY) return [];
   try {
     const res = await fetch('https://tavily.com', {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json' 
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         api_key: process.env.TAVILY_API_KEY,
         query,
@@ -54,33 +36,12 @@ async function tavilySearch(query) {
         include_answer: false,
       }),
     });
-    
     const bodyText = await res.text();
-    
-    // 🔥 FIX 2: If the response is blank, do not try to parse it
-    if (!bodyText || bodyText.trim() === '') {
-      console.warn("Tavily returned an empty string response.");
-      return [];
-    }
-
-    let data;
-    try {
-      data = JSON.parse(bodyText);
-    } catch (e) {
-      // If it's a raw string error page from the server, log it gracefully instead of crashing
-      console.error(`Failed to parse Tavily response: ${bodyText}`);
-      return [];
-    }
-    
-    if (data.error) {
-      console.error("Tavily API Error:", data.error);
-      return [];
-    }
-    
+    if (!bodyText) return [];
+    const data = JSON.parse(bodyText);
     return data.results || [];
   } catch (err) {
-    console.error("Network error during Tavily fetch:", err.message);
-    return []; // Return an empty array so the application drops back to the model smoothly
+    return [];
   }
 }
 
@@ -91,7 +52,6 @@ module.exports = async (req, res) => {
 
   try {
     const { history } = req.body;
-
     if (!Array.isArray(history) || history.length === 0) {
       return res.status(400).json({ error: 'history is required' });
     }
@@ -101,15 +61,13 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'No user message found in history' });
     }
 
-    // 1. Search the web safely
     const results = await tavilySearch(lastUserMsg.content);
-    const sourcesBlock = results && results.length
+    const sourcesBlock = results.length
       ? 'Web search results:\n\n' + results.map((r, i) =>
           `[${i + 1}] ${r.title}\n${r.url}\n${(r.content || '').slice(0, 500)}`
         ).join('\n\n')
-      : 'No web search results were found for this query — say so rather than guessing at figures.';
+      : 'No web search results were found for this query.';
 
-    // 2. Build the OpenAI-style message list
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT },
       ...history.map(m => {
@@ -120,8 +78,7 @@ module.exports = async (req, res) => {
       }),
     ];
 
-    // 3. Call NVIDIA NIM with a clean loop
-    let text = '';
+    let finalResponseText = '';
     let lastError = null;
 
     for (const model of NVIDIA_MODELS) {
@@ -136,46 +93,56 @@ module.exports = async (req, res) => {
           messages,
           temperature: 0.4,
           max_tokens: 1024,
+          stream: true // 🔥 FIX 1: Enforce streaming to prevent empty choice responses from NVIDIA NIM
         }),
       });
 
-      const bodyStr = await nvidiaRes.text();
+      if (!nvidiaRes.ok) {
+        const errText = await nvidiaRes.text();
+        lastError = `NVIDIA API (${model}) returned ${nvidiaRes.status}: ${errText.slice(0, 200)}`;
+        continue;
+      }
+
+      // 🔥 FIX 2: Safely parse Server-Sent Events (SSE) data stream chunks
+      const reader = nvidiaRes.body.setEncoding('utf-8');
+      let accumulatedText = '';
       
-      let data = {};
-      try {
-        if (bodyStr) data = JSON.parse(bodyStr);
-      } catch (e) {
-        // Fallback for non-JSON string errors
+      for await (const chunk of nvidiaRes.body) {
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          const cleanLine = line.trim();
+          if (!cleanLine || !cleanLine.startsWith('data:')) continue;
+          
+          const dataStr = cleanLine.replace(/^data:\s*/, '');
+          if (dataStr === '[DONE]') break;
+          
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed.choices?.[0]?.delta;
+            const content = delta?.content || delta?.reasoning_content || '';
+            accumulatedText += content;
+          } catch (e) {
+            // Drop unparseable heartbeat keep-alive frames safely
+          }
+        }
       }
 
-      const isRetiredOrMissing =
-        nvidiaRes.status === 410 ||
-        nvidiaRes.status === 404 ||
-        /no longer available|not found/i.test(bodyStr);
-
-      if (!nvidiaRes.ok || data.error) {
-        lastError = `NVIDIA API (${model}) returned ${nvidiaRes.status}: ${bodyStr.slice(0, 300)}`;
-        if (isRetiredOrMissing) continue; 
-        break; 
-      }
-
-      const message = data.choices?.[0]?.message || {};
-      text = (message.content || message.reasoning_content || '')
+      finalResponseText = accumulatedText
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .trim();
 
-      if (text) break; 
-      lastError = `Model ${model} returned an empty response.`;
+      if (finalResponseText) break; // Success, stop falling through the models array
+      lastError = `Model ${model} streamed an empty text block.`;
     }
 
-    if (!text) {
+    if (!finalResponseText) {
       return res.status(502).json({
-        error: lastError || 'All NVIDIA models failed with no further detail.',
+        error: lastError || 'All models failed to generate content.',
       });
     }
 
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ text });
+    res.status(200).json({ text: finalResponseText });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
