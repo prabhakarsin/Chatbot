@@ -5,7 +5,7 @@ export const config = {
   runtime: 'edge',
 };
 
-// Currently supported production models on the NVIDIA NIM host
+// Supported active production models on NVIDIA NIM
 const NVIDIA_MODELS = [
   'meta/llama-3.3-70b-instruct',
   'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -122,19 +122,16 @@ export default async function handler(req) {
           continue; 
         }
 
-        // Safe check to verify we got JSON back before running JSON.parse
         if (!contentType.includes('application/json')) {
           lastError = `Model ${model} returned non-JSON payload (HTML Gateways Page Error).`;
           continue;
         }
 
-        let data = JSON.parse(bodyStr);
-        // Fixed lookup mapping path chains
-        const message = data.choices?.[0]?.message || {};
+        const data = JSON.parse(bodyStr);
+        // Fixed: Corrected standard index path lookup mapping chains
+        const messageContent = data.choices?.[0]?.message?.content || '';
         
-        finalResponseText = (message.content || message.reasoning_content || '')
-          .replace(/<think>[\s\S]*?<\/think>/gi, '')
-          .trim();
+        finalResponseText = messageContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
         if (finalResponseText) break; 
       } catch (err) {
