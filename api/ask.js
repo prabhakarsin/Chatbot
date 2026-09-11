@@ -1,31 +1,15 @@
+
 // /api/ask.js
 // Deploy as a Vercel serverless function.
-//
-// Uses NVIDIA NIM for the chat model and Tavily for web search — NVIDIA's
-// models have no built-in search grounding of their own, so Tavily's results
-// are fetched first and handed to the model as context.
-//
-// Required environment variables:
-//   NVIDIA_API_KEY - get one free at https://build.nvidia.com
-//                     (no credit card required for the free tier)
-//   TAVILY_API_KEY - get one free at https://tavily.com
-//                     (1,000 searches/month, permanent free plan, no card)
-//
-// NVIDIA hosts many models under one API — see https://build.nvidia.com for
-// the current catalog. NVIDIA_MODELS below is a fallback chain (see next
-// comment block) so a single retirement doesn't break the app again.
 
-// NVIDIA periodically retires models on an end-of-life schedule (this app
-// hit that already once). Instead of one hardcoded model, try a short list
-// in order and fall through automatically if one comes back retired/missing.
-// Check https://build.nvidia.com for the current catalog if all of these
-// eventually go stale too.
+// NVIDIA periodically retires models on an end-of-life schedule. 
+// Standard format for public API keys uses the "meta/" and "nvidia/" prefixes.
 const NVIDIA_MODELS = [
-  // 🟢 CURRENT & ACTIVE: Meta's direct, clean endpoint identifier
-  'llama-3.3-70b-instruct',
+  // 🟢 CURRENT & ACTIVE: Meta's direct current upgrade to the 70B line
+  'meta/llama-3.3-70b-instruct',
   
-  // 🟢 CURRENT & ACTIVE: Clean, direct endpoint format for Nemotron
-  'llama-3.1-nemotron-70b-instruct'
+  // 🟢 CURRENT & ACTIVE: Excellent custom alignment for financial text & data queries
+  'nvidia/llama-3.1-nemotron-70b-instruct'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
@@ -53,9 +37,18 @@ async function tavilySearch(query) {
       include_answer: false,
     }),
   });
-  const data = await res.json();
+  
+  // Robust check for Tavily errors
+  const bodyText = await res.text();
+  let data;
+  try {
+    data = JSON.parse(bodyText);
+  } catch (e) {
+    throw new Error(`Tavily returned invalid JSON: ${bodyText.slice(0, 200)}`);
+  }
+  
   if (data.error) throw new Error(data.error);
-  return data.results || []; // [{ title, url, content }, ...]
+  return data.results || [];
 }
 
 module.exports = async (req, res) => {
@@ -64,7 +57,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { history } = req.body; // [{role:'user'|'assistant', content: '...'}, ...]
+    const { history } = req.body;
 
     if (!Array.isArray(history) || history.length === 0) {
       return res.status(400).json({ error: 'history is required' });
@@ -83,8 +76,7 @@ module.exports = async (req, res) => {
         ).join('\n\n')
       : 'No web search results were found for this query — say so rather than guessing at figures.';
 
-    // 2. Build the OpenAI-style message list NVIDIA's API expects, injecting
-    //    the search results into the latest user turn.
+    // 2. Build the OpenAI-style message list
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT },
       ...history.map(m => {
@@ -95,8 +87,7 @@ module.exports = async (req, res) => {
       }),
     ];
 
-    // 3. Call NVIDIA NIM (OpenAI-compatible chat completions), trying each
-    //    candidate model in order and falling through if one is retired.
+    // 3. Call NVIDIA NIM with a completely safe string try/catch block
     let text = '';
     let lastError = null;
 
@@ -115,8 +106,17 @@ module.exports = async (req, res) => {
         }),
       });
 
-      const data = await nvidiaRes.json();
-      const bodyStr = JSON.stringify(data);
+      // 🔥 FIX: Read as raw text first so it NEVER crashes your serverless function
+      const bodyStr = await nvidiaRes.text();
+      
+      let data = {};
+      let isJson = true;
+      try {
+        data = JSON.parse(bodyStr);
+      } catch (e) {
+        isJson = false; // Response wasn't JSON (likely an explicit gateway or endpoint string crash)
+      }
+
       const isRetiredOrMissing =
         nvidiaRes.status === 410 ||
         nvidiaRes.status === 404 ||
@@ -124,20 +124,16 @@ module.exports = async (req, res) => {
 
       if (!nvidiaRes.ok || data.error) {
         lastError = `NVIDIA API (${model}) returned ${nvidiaRes.status}: ${bodyStr.slice(0, 300)}`;
-        if (isRetiredOrMissing) continue; // try the next candidate
-        break; // a real error (auth, rate limit, etc.) — don't keep burning quota
+        if (isRetiredOrMissing) continue; // Safely drop to the next model in your array
+        break; // Stop loop if it's a structural error (e.g., bad API Key)
       }
 
       const message = data.choices?.[0]?.message || {};
-      // Some NVIDIA-hosted models (reasoning-capable ones) put the answer in
-      // reasoning_content and leave content blank when "thinking" mode kicks
-      // in. Fall back to it, and strip any <think>...</think> wrapper if the
-      // model included one inline.
       text = (message.content || message.reasoning_content || '')
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .trim();
 
-      if (text) break; // success
+      if (text) break; // Success!
       lastError = `Model ${model} returned an empty response. Raw payload: ${bodyStr.slice(0, 400)}`;
     }
 
