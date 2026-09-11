@@ -3,12 +3,16 @@
 
 // NVIDIA periodically retires models on an end-of-life schedule. 
 // Standard format for public API keys uses these specific vendor handles.
-const NVIDIA_MODELS = [
-  // 🟢 CURRENT & ACTIVE: Premium data-processing engine on public tiers
-  'deepseek-ai/deepseek-v3',
+// /api/ask.js
 
-  // 🟢 CURRENT & ACTIVE: Reliable long-context backup model
-  'moonshotai/kimi-k3'
+// NVIDIA periodically retires models on an end-of-life schedule.
+// These public-access endpoints ensure reliable routing without throwing empty content errors.
+const NVIDIA_MODELS = [
+  // 🟢 ACTIVE & PUBLIC: Qwen's powerful reasoning architecture with universal endpoint access
+  'qwen/qwen3-235b-a22b',
+  
+  // 🟢 ACTIVE & PUBLIC: Highly reliable conversational data-processing engine 
+  'deepseek-ai/deepseek-chat-3-2'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
