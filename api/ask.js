@@ -106,7 +106,25 @@ module.exports = async (req, res) => {
       return res.status(502).json({ error: data.error.message || 'NVIDIA API error' });
     }
 
-    const text = data.choices?.[0]?.message?.content || '';
+    if (!nvidiaRes.ok) {
+      return res.status(502).json({
+        error: `NVIDIA API returned ${nvidiaRes.status}: ${JSON.stringify(data).slice(0, 300)}`,
+      });
+    }
+
+    const message = data.choices?.[0]?.message || {};
+    // Some NVIDIA-hosted models (reasoning-capable ones) put the answer in
+    // reasoning_content and leave content blank when "thinking" mode kicks
+    // in. Fall back to it, and strip any <think>...</think> wrapper if the
+    // model included one inline.
+    let text = message.content || message.reasoning_content || '';
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+    if (!text) {
+      return res.status(502).json({
+        error: `Model returned an empty response. Raw payload: ${JSON.stringify(data).slice(0, 400)}`,
+      });
+    }
 
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({ text });
