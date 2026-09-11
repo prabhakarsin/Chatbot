@@ -128,8 +128,9 @@ export default async function handler(req) {
         }
 
         const data = JSON.parse(bodyStr);
-        // Fixed: Corrected standard index path lookup mapping chains
-        const messageContent = data.choices?.[0]?.message?.content || '';
+        
+        // Fixed: Valid standard JavaScript optional chaining layout
+        const messageContent = data?.choices?.[0]?.message?.content || '';
         
         finalResponseText = messageContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
