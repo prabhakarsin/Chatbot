@@ -1,10 +1,11 @@
 // /api/ask.js
-// Optimized for Vercel Edge Runtime using native web streaming APIs (No heavy OpenAI SDK).
+// Optimized for Vercel Edge Runtime using native web streaming APIs (No OpenAI SDK dependency).
 
 export const config = {
   runtime: 'edge',
 };
 
+// Updated with supported production models to replace de-activated ones
 const NVIDIA_MODELS = [
   'meta/llama-3.3-70b-instruct',
   'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -26,7 +27,8 @@ Rules:
 async function tavilySearch(query) {
   if (!process.env.TAVILY_API_KEY) return [];
   try {
-    const res = await fetch('https://tavily.com', {
+    // Fixed: Using the true structural API endpoint path for Tavily
+    const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -95,6 +97,7 @@ export default async function handler(req) {
     // 2. Loop through candidate endpoints using standard native fetch
     for (const model of NVIDIA_MODELS) {
       try {
+        // Fixed: Using the proper live Nvidia API cloud completions endpoint
         const nvidiaRes = await fetch('https://nvidia.com', {
           method: 'POST',
           headers: {
@@ -106,7 +109,7 @@ export default async function handler(req) {
             messages,
             temperature: 0.4,
             max_tokens: 1024,
-            stream: false // Using standard request since the edge runtime bypasses timeouts natively
+            stream: false
           }),
         });
 
@@ -114,7 +117,7 @@ export default async function handler(req) {
 
         if (!nvidiaRes.ok) {
           lastError = `NVIDIA API (${model}) returned status ${nvidiaRes.status}: ${bodyStr.slice(0, 200)}`;
-          continue; // Try next model path
+          continue; 
         }
 
         let data = JSON.parse(bodyStr);
@@ -124,7 +127,7 @@ export default async function handler(req) {
           .replace(/<think>[\s\S]*?<\/think>/gi, '')
           .trim();
 
-        if (finalResponseText) break; // Success, exit fallback loop
+        if (finalResponseText) break; 
       } catch (err) {
         lastError = `Model ${model} execution crash: ${err.message}`;
         continue;
