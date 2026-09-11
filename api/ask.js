@@ -11,12 +11,20 @@
 //   TAVILY_API_KEY - get one free at https://tavily.com
 //                     (1,000 searches/month, permanent free plan, no card)
 //
-// NVIDIA hosts many models under one API — check https://build.nvidia.com
-// for the current catalog and swap NVIDIA_MODEL below if you want a
-// different one. This picks a general-purpose instruct model as a
-// reasonable default.
+// NVIDIA hosts many models under one API — see https://build.nvidia.com for
+// the current catalog. NVIDIA_MODELS below is a fallback chain (see next
+// comment block) so a single retirement doesn't break the app again.
 
-const NVIDIA_MODEL = 'meta/llama-3.3-70b-instruct';
+// NVIDIA periodically retires models on an end-of-life schedule (this app
+// hit that already once). Instead of one hardcoded model, try a short list
+// in order and fall through automatically if one comes back retired/missing.
+// Check https://build.nvidia.com for the current catalog if all of these
+// eventually go stale too.
+const NVIDIA_MODELS = [
+  'meta/llama-3.1-70b-instruct',
+  'nvidia/llama-3.1-nemotron-70b-instruct',
+  'mistralai/mixtral-8x22b-instruct-v0.1',
+];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
 
@@ -85,44 +93,55 @@ module.exports = async (req, res) => {
       }),
     ];
 
-    // 3. Call NVIDIA NIM (OpenAI-compatible chat completions)
-    const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NVIDIA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: NVIDIA_MODEL,
-        messages,
-        temperature: 0.4,
-        max_tokens: 1024,
-      }),
-    });
+    // 3. Call NVIDIA NIM (OpenAI-compatible chat completions), trying each
+    //    candidate model in order and falling through if one is retired.
+    let text = '';
+    let lastError = null;
 
-    const data = await nvidiaRes.json();
-
-    if (data.error) {
-      return res.status(502).json({ error: data.error.message || 'NVIDIA API error' });
-    }
-
-    if (!nvidiaRes.ok) {
-      return res.status(502).json({
-        error: `NVIDIA API returned ${nvidiaRes.status}: ${JSON.stringify(data).slice(0, 300)}`,
+    for (const model of NVIDIA_MODELS) {
+      const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NVIDIA_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.4,
+          max_tokens: 1024,
+        }),
       });
-    }
 
-    const message = data.choices?.[0]?.message || {};
-    // Some NVIDIA-hosted models (reasoning-capable ones) put the answer in
-    // reasoning_content and leave content blank when "thinking" mode kicks
-    // in. Fall back to it, and strip any <think>...</think> wrapper if the
-    // model included one inline.
-    let text = message.content || message.reasoning_content || '';
-    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      const data = await nvidiaRes.json();
+      const bodyStr = JSON.stringify(data);
+      const isRetiredOrMissing =
+        nvidiaRes.status === 410 ||
+        nvidiaRes.status === 404 ||
+        /no longer available|not found/i.test(bodyStr);
+
+      if (!nvidiaRes.ok || data.error) {
+        lastError = `NVIDIA API (${model}) returned ${nvidiaRes.status}: ${bodyStr.slice(0, 300)}`;
+        if (isRetiredOrMissing) continue; // try the next candidate
+        break; // a real error (auth, rate limit, etc.) — don't keep burning quota
+      }
+
+      const message = data.choices?.[0]?.message || {};
+      // Some NVIDIA-hosted models (reasoning-capable ones) put the answer in
+      // reasoning_content and leave content blank when "thinking" mode kicks
+      // in. Fall back to it, and strip any <think>...</think> wrapper if the
+      // model included one inline.
+      text = (message.content || message.reasoning_content || '')
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .trim();
+
+      if (text) break; // success
+      lastError = `Model ${model} returned an empty response. Raw payload: ${bodyStr.slice(0, 400)}`;
+    }
 
     if (!text) {
       return res.status(502).json({
-        error: `Model returned an empty response. Raw payload: ${JSON.stringify(data).slice(0, 400)}`,
+        error: lastError || 'All NVIDIA models failed with no further detail.',
       });
     }
 
