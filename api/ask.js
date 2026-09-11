@@ -1,8 +1,6 @@
 // /api/ask.js
-// Optimized for Vercel Edge Runtime to handle gateway text blocks cleanly.
-const { OpenAI } = require('openai');
+// Optimized for Vercel Edge Runtime using native web streaming APIs (No heavy OpenAI SDK).
 
-// Force Vercel to host this on an unrestricted Edge configuration tier
 export const config = {
   runtime: 'edge',
 };
@@ -28,7 +26,7 @@ Rules:
 async function tavilySearch(query) {
   if (!process.env.TAVILY_API_KEY) return [];
   try {
-    const res = await fetch('https://api.tavily.com/search', {
+    const res = await fetch('https://tavily.com', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -91,48 +89,51 @@ export default async function handler(req) {
       }),
     ];
 
-    const openai = new OpenAI({
-      apiKey: process.env.NVIDIA_API_KEY,
-      baseUrl: 'https://integrate.api.nvidia.com/v1',
-    });
-
     let finalResponseText = '';
     let lastError = null;
 
-    // 2. Loop through candidate endpoints safely
+    // 2. Loop through candidate endpoints using standard native fetch
     for (const model of NVIDIA_MODELS) {
       try {
-        const stream = await openai.chat.completions.create({
-          model,
-          messages,
-          temperature: 0.4,
-          max_tokens: 1024,
-          stream: true,
+        const nvidiaRes = await fetch('https://nvidia.com', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NVIDIA_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.4,
+            max_tokens: 1024,
+            stream: false // Using standard request since the edge runtime bypasses timeouts natively
+          }),
         });
 
-        let accumulatedText = '';
-        for await (const chunk of stream) {
-          const delta = chunk.choices?.[0]?.delta;
-          const content = delta?.content || delta?.reasoning_content || '';
-          accumulatedText += content;
+        const bodyStr = await nvidiaRes.text();
+
+        if (!nvidiaRes.ok) {
+          lastError = `NVIDIA API (${model}) returned status ${nvidiaRes.status}: ${bodyStr.slice(0, 200)}`;
+          continue; // Try next model path
         }
 
-        finalResponseText = accumulatedText
+        let data = JSON.parse(bodyStr);
+        const message = data.choices?.[0]?.message || {};
+        
+        finalResponseText = (message.content || message.reasoning_content || '')
           .replace(/<think>[\s\S]*?<\/think>/gi, '')
           .trim();
 
-        if (finalResponseText) break; // Exit fallback chain on success
+        if (finalResponseText) break; // Success, exit fallback loop
       } catch (err) {
-        // 🔥 SAFELY INTERCEPT RAW TEXT ERRS: Intercept code crashes gracefully
-        lastError = `Model ${model} failed: ${err.message}`;
-        console.warn(`Error captured for ${model}: ${err.message}`);
-        continue; // Immediately hop to the backup model option string
+        lastError = `Model ${model} execution crash: ${err.message}`;
+        continue;
       }
     }
 
     if (!finalResponseText) {
       return new Response(JSON.stringify({ 
-        error: lastError || 'All model endpoint handshakes returned unparseable text blocks.' 
+        error: lastError || 'All models failed to deliver text structures.' 
       }), { 
         status: 502, 
         headers: { 'Content-Type': 'application/json' } 
