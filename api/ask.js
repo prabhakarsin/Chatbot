@@ -7,12 +7,16 @@
 
 // NVIDIA periodically retires models on an end-of-life schedule.
 // These public-access endpoints ensure reliable routing without throwing empty content errors.
+// /api/ask.js
+
+// NVIDIA periodically retires models on an end-of-life schedule.
+// These exact string paths match the current 2026 active public catalog.
 const NVIDIA_MODELS = [
-  // 🟢 ACTIVE & PUBLIC: Qwen's powerful reasoning architecture with universal endpoint access
-  'qwen/qwen3-235b-a22b',
+  // 🟢 LIVE & WORKING: The official endpoint for Meta's flagship model
+  'meta/llama-3.3-70b-instruct',
   
-  // 🟢 ACTIVE & PUBLIC: Highly reliable conversational data-processing engine 
-  'deepseek-ai/deepseek-chat-3-2'
+  // 🟢 LIVE & WORKING: The official active endpoint for the Nemotron series
+  'nvidia/llama-3.1-nemotron-70b-instruct'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
