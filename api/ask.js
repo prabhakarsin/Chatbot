@@ -144,7 +144,7 @@ export default async function handler(req) {
     // NEW CODE
 if (!finalResponseText) {
   return new Response(JSON.stringify({ 
-    error: 'This feature is under development and launching soon.' 
+    error: 'Development mein time lagega jaise Girlfriend Banane mein lagtha hai..plz sabar' 
   }), { 
     status: 200, // Changed to 200 so your frontend treats it as a clean message rather than a generic network crash
     headers: { 'Content-Type': 'application/json' } 
