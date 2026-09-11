@@ -141,14 +141,16 @@ export default async function handler(req) {
       }
     }
 
-    if (!finalResponseText) {
-      return new Response(JSON.stringify({ 
-        error: lastError || 'All models failed to deliver text structures.' 
-      }), { 
-        status: 502, 
-        headers: { 'Content-Type': 'application/json' } 
-      });
-    }
+    // NEW CODE
+if (!finalResponseText) {
+  return new Response(JSON.stringify({ 
+    error: 'This feature is under development and launching soon.' 
+  }), { 
+    status: 200, // Changed to 200 so your frontend treats it as a clean message rather than a generic network crash
+    headers: { 'Content-Type': 'application/json' } 
+  });
+}
+    
 
     return new Response(JSON.stringify({ text: finalResponseText }), {
       status: 200,
