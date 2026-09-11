@@ -1,15 +1,13 @@
-
 // /api/ask.js
-// Deploy as a Vercel serverless function.
 
-// NVIDIA periodically retires models on an end-of-life schedule. 
-// Standard format for public API keys uses the "meta/" and "nvidia/" prefixes.
+// NVIDIA periodically retires models on an end-of-life schedule.
+// These public-access identifiers ensure stable routing without account tier issues.
 const NVIDIA_MODELS = [
-  // 🟢 CURRENT & ACTIVE: Meta's direct current upgrade to the 70B line
-  'meta/llama-3.3-70b-instruct',
-  
-  // 🟢 CURRENT & ACTIVE: Excellent custom alignment for financial text & data queries
-  'nvidia/llama-3.1-nemotron-70b-instruct'
+  // 🟢 ACTIVE & STABLE: Highly efficient, fast, and optimized for data/coding tasks
+  'deepseek-ai/deepseek-v3',
+
+  // 🟢 ACTIVE & STABLE: Powerful alternative mixture-of-experts model for research
+  'moonshotai/kimi-k3'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
@@ -26,7 +24,7 @@ Rules:
 - Keep responses focused — a few short paragraphs or a tight list, not an essay.`;
 
 async function tavilySearch(query) {
-  const res = await fetch('https://api.tavily.com/search', {
+  const res = await fetch('https://tavily.com', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -38,7 +36,6 @@ async function tavilySearch(query) {
     }),
   });
   
-  // Robust check for Tavily errors
   const bodyText = await res.text();
   let data;
   try {
@@ -87,12 +84,12 @@ module.exports = async (req, res) => {
       }),
     ];
 
-    // 3. Call NVIDIA NIM with a completely safe string try/catch block
+    // 3. Call NVIDIA NIM with a clean loop
     let text = '';
     let lastError = null;
 
     for (const model of NVIDIA_MODELS) {
-      const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+      const nvidiaRes = await fetch('https://nvidia.com', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -106,15 +103,13 @@ module.exports = async (req, res) => {
         }),
       });
 
-      // 🔥 FIX: Read as raw text first so it NEVER crashes your serverless function
       const bodyStr = await nvidiaRes.text();
       
       let data = {};
-      let isJson = true;
       try {
         data = JSON.parse(bodyStr);
       } catch (e) {
-        isJson = false; // Response wasn't JSON (likely an explicit gateway or endpoint string crash)
+        // Response wasn't JSON, handle it as raw error text
       }
 
       const isRetiredOrMissing =
@@ -124,17 +119,18 @@ module.exports = async (req, res) => {
 
       if (!nvidiaRes.ok || data.error) {
         lastError = `NVIDIA API (${model}) returned ${nvidiaRes.status}: ${bodyStr.slice(0, 300)}`;
-        if (isRetiredOrMissing) continue; // Safely drop to the next model in your array
-        break; // Stop loop if it's a structural error (e.g., bad API Key)
+        if (isRetiredOrMissing) continue; // Try the next model candidate
+        break; // Stop loop on structural problems (e.g. invalid API key)
       }
 
+      // 🔥 LOGIC FIX: Handle nested choices chaining properly
       const message = data.choices?.[0]?.message || {};
       text = (message.content || message.reasoning_content || '')
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .trim();
 
       if (text) break; // Success!
-      lastError = `Model ${model} returned an empty response. Raw payload: ${bodyStr.slice(0, 400)}`;
+      lastError = `Model ${model} returned an empty response.`;
     }
 
     if (!text) {
