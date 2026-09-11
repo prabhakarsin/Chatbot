@@ -21,11 +21,11 @@
 // Check https://build.nvidia.com for the current catalog if all of these
 // eventually go stale too.
 const NVIDIA_MODELS = [
-  // 🟢 ACTIVE: Meta's direct current upgrade to the 70B line
-  'meta/llama-3.3-70b-instruct',
+  // 🟢 CURRENT & ACTIVE: Meta's direct, clean endpoint identifier
+  'llama-3.3-70b-instruct',
   
-  // 🟢 ACTIVE: Custom alignment optimized for financial text & data queries
-  'nvidia/llama-3.1-nemotron-70b-instruct'
+  // 🟢 CURRENT & ACTIVE: Clean, direct endpoint format for Nemotron
+  'llama-3.1-nemotron-70b-instruct'
 ];
 
 const SYSTEM_PROMPT = `You are Compass, an investment research assistant. You will be given web search results alongside the user's question — use them to answer with current, specific information. Don't rely on memory for figures, prices, or recent news; if the search results don't cover something, say so rather than guessing.
